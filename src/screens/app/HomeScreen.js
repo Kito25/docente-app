@@ -56,6 +56,14 @@ export default function HomeScreen({ navigation }) {
       color: '#D97706',
       pantalla: 'Calificaciones',
     },
+    {
+  id: 4,
+  titulo: 'Exportar PDF',
+  descripcion: 'Generá reportes de notas y asistencia',
+  icono: '📄',
+  color: '#7C3AED',
+  pantalla: 'ExportarPDF',
+},
   ];
 
   return (
