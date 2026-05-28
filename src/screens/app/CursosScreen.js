@@ -1,10 +1,8 @@
 // CursosScreen.js — Pantalla de lista de cursos
-// Muestra todos los cursos del docente logueado.
-// Permite crear nuevos cursos y acceder a los alumnos de cada uno.
-// Los cursos se traen desde Supabase filtrando por el docente actual,
-// gracias a las políticas RLS que configuramos al inicio.
+// Permite crear, editar y eliminar cursos.
+// Swipe o botón largo en una tarjeta muestra las opciones de editar/eliminar.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,47 +14,59 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 
 export default function CursosScreen({ navigation }) {
   const [cursos, setCursos] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Controla si el modal para crear curso está visible
   const [modalVisible, setModalVisible] = useState(false);
-
-  // Campos del formulario para crear un curso nuevo
-  const [nombreCurso, setNombreCurso] = useState('');
-  const [materiaCurso, setMateriaCurso] = useState('');
   const [guardando, setGuardando] = useState(false);
 
-  // useEffect se ejecuta una vez al montar el componente
-  // Es el lugar correcto para cargar datos iniciales
-  useEffect(() => {
-    cargarCursos();
-  }, []);
+  // cursoEditando es null cuando creamos uno nuevo
+  // o contiene el objeto curso cuando editamos uno existente
+  const [cursoEditando, setCursoEditando] = useState(null);
+  const [nombreCurso, setNombreCurso] = useState('');
+  const [materiaCurso, setMateriaCurso] = useState('');
+
+  useFocusEffect(
+    useCallback(() => {
+      cargarCursos();
+    }, [])
+  );
 
   const cargarCursos = async () => {
     setLoading(true);
-
-    // Traemos solo los cursos del docente logueado
-    // Supabase aplica automáticamente el filtro RLS,
-    // por lo que no necesitamos filtrar manualmente por docente_id
     const { data, error } = await supabase
       .from('cursos')
       .select('*')
-      .order('created_at', { ascending: false }); // más recientes primero
+      .order('created_at', { ascending: false });
 
     if (error) {
       Alert.alert('Error', 'No se pudieron cargar los cursos');
     } else {
       setCursos(data);
     }
-
     setLoading(false);
   };
 
-  const crearCurso = async () => {
+  // Abre el modal para crear un curso nuevo
+  const abrirModalNuevo = () => {
+    setCursoEditando(null);
+    setNombreCurso('');
+    setMateriaCurso('');
+    setModalVisible(true);
+  };
+
+  // Abre el modal precargado con los datos del curso a editar
+  const abrirModalEditar = (curso) => {
+    setCursoEditando(curso);
+    setNombreCurso(curso.nombre);
+    setMateriaCurso(curso.materia);
+    setModalVisible(true);
+  };
+
+  const guardarCurso = async () => {
     if (!nombreCurso || !materiaCurso) {
       Alert.alert('Error', 'Completá todos los campos');
       return;
@@ -64,68 +74,119 @@ export default function CursosScreen({ navigation }) {
 
     setGuardando(true);
 
-    // Obtenemos el ID del docente logueado para asociarlo al curso
-    const { data: { user } } = await supabase.auth.getUser();
+    if (cursoEditando) {
+      // Modo edición — usamos update con el id del curso
+      const { error } = await supabase
+        .from('cursos')
+        .update({
+          nombre: nombreCurso.trim(),
+          materia: materiaCurso.trim(),
+        })
+        .eq('id', cursoEditando.id);
 
-    const { error } = await supabase
-      .from('cursos')
-      .insert({
-        nombre: nombreCurso.trim(),
-        materia: materiaCurso.trim(),
-        docente_id: user.id, // vinculamos el curso al docente actual
-      });
+      if (error) {
+        Alert.alert('Error', 'No se pudo actualizar el curso');
+        setGuardando(false);
+        return;
+      }
+    } else {
+      // Modo creación — insert normal
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error } = await supabase
+        .from('cursos')
+        .insert({
+          nombre: nombreCurso.trim(),
+          materia: materiaCurso.trim(),
+          docente_id: user.id,
+        });
 
-    setGuardando(false);
-
-    if (error) {
-      Alert.alert('Error', 'No se pudo crear el curso');
-      return;
+      if (error) {
+        Alert.alert('Error', 'No se pudo crear el curso');
+        setGuardando(false);
+        return;
+      }
     }
 
-    // Limpiamos el formulario y cerramos el modal
+    setGuardando(false);
     setNombreCurso('');
     setMateriaCurso('');
     setModalVisible(false);
-
-    // Recargamos la lista para mostrar el curso nuevo
     cargarCursos();
   };
 
-  // Componente que representa cada tarjeta de curso en la lista
+  const eliminarCurso = (curso) => {
+    // Alert.alert con múltiples botones funciona como un diálogo de confirmación
+    // Siempre pedimos confirmación antes de eliminar para evitar borrados accidentales
+    Alert.alert(
+      'Eliminar curso',
+      `¿Estás seguro que querés eliminar "${curso.nombre}"? Se eliminarán también todos los alumnos, asistencias y calificaciones asociadas.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive', // en iOS pone el texto en rojo
+          onPress: async () => {
+            const { error } = await supabase
+              .from('cursos')
+              .delete()
+              .eq('id', curso.id);
+
+            if (error) {
+              Alert.alert('Error', 'No se pudo eliminar el curso');
+              return;
+            }
+
+            cargarCursos();
+          },
+        },
+      ]
+    );
+  };
+
   const renderCurso = ({ item }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => navigation.navigate('Alumnos', { curso: item })}
-      // Pasamos el objeto curso completo a la pantalla de alumnos
-      // para no tener que volver a buscarlo en la base de datos
-    >
-      <View style={styles.cardLeft}>
-        <Text style={styles.cardNombre}>{item.nombre}</Text>
-        <Text style={styles.cardMateria}>{item.materia}</Text>
+    <View style={styles.cardContainer}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => navigation.navigate('Alumnos', { curso: item })}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardLeft}>
+          <Text style={styles.cardNombre}>{item.nombre}</Text>
+          <Text style={styles.cardMateria}>{item.materia}</Text>
+        </View>
+        <Text style={styles.cardArrow}>›</Text>
+      </TouchableOpacity>
+
+      {/* Botones de editar y eliminar visibles en cada tarjeta */}
+      <View style={styles.acciones}>
+        <TouchableOpacity
+          style={styles.accionEditar}
+          onPress={() => abrirModalEditar(item)}
+        >
+          <Text style={styles.accionEditarText}>✏️ Editar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.accionEliminar}
+          onPress={() => eliminarCurso(item)}
+        >
+          <Text style={styles.accionEliminarText}>🗑️ Eliminar</Text>
+        </TouchableOpacity>
       </View>
-      <Text style={styles.cardArrow}>›</Text>
-    </TouchableOpacity>
+    </View>
   );
 
   return (
     <View style={styles.container}>
-
-      {/* Encabezado con botón de volver */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backBtn}>‹ Volver</Text>
         </TouchableOpacity>
         <Text style={styles.titulo}>Mis Cursos</Text>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setModalVisible(true)}
-        >
+        <TouchableOpacity style={styles.addBtn} onPress={abrirModalNuevo}>
           <Text style={styles.addBtnText}>+ Nuevo</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Lista de cursos — FlatList es más eficiente que ScrollView
-          para listas largas porque solo renderiza los elementos visibles */}
       {loading ? (
         <ActivityIndicator size="large" color="#4F46E5" style={styles.loader} />
       ) : (
@@ -135,7 +196,6 @@ export default function CursosScreen({ navigation }) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.lista}
           ListEmptyComponent={
-            // Mensaje cuando no hay cursos todavía
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No tenés cursos aún</Text>
               <Text style={styles.emptySubtext}>Tocá "+ Nuevo" para crear tu primer curso</Text>
@@ -144,17 +204,18 @@ export default function CursosScreen({ navigation }) {
         />
       )}
 
-      {/* Modal para crear curso nuevo
-          Un Modal flota sobre la pantalla actual sin cambiar de ruta */}
       <Modal
         visible={modalVisible}
-        transparent={true} // fondo semitransparente
+        transparent={true}
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitulo}>Nuevo curso</Text>
+            {/* El título del modal cambia según si estamos creando o editando */}
+            <Text style={styles.modalTitulo}>
+              {cursoEditando ? 'Editar curso' : 'Nuevo curso'}
+            </Text>
 
             <TextInput
               style={styles.input}
@@ -174,12 +235,14 @@ export default function CursosScreen({ navigation }) {
 
             <TouchableOpacity
               style={[styles.button, guardando && styles.buttonDisabled]}
-              onPress={crearCurso}
+              onPress={guardarCurso}
               disabled={guardando}
             >
               {guardando
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>Crear curso</Text>
+                : <Text style={styles.buttonText}>
+                    {cursoEditando ? 'Guardar cambios' : 'Crear curso'}
+                  </Text>
               }
             </TouchableOpacity>
 
@@ -192,7 +255,6 @@ export default function CursosScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -237,11 +299,15 @@ const styles = StyleSheet.create({
   lista: {
     padding: 20,
   },
+  cardContainer: {
+    marginBottom: 16,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     padding: 18,
-    marginBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
@@ -267,6 +333,38 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#9CA3AF',
   },
+  acciones: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    overflow: 'hidden',
+    elevation: 2,
+  },
+  accionEditar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+  },
+  accionEditarText: {
+    color: '#4F46E5',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  accionEliminar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+  },
+  accionEliminarText: {
+    color: '#EF4444',
+    fontWeight: '600',
+    fontSize: 13,
+  },
   loader: {
     marginTop: 60,
   },
@@ -288,7 +386,7 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end', // el modal sube desde abajo, más natural en mobile
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#fff',

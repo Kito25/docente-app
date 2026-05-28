@@ -1,6 +1,6 @@
-// CargarNotaScreen.js — Pantalla para cargar y ver notas de un alumno
+// CargarNotaScreen.js — Pantalla para ver, cargar, editar y eliminar notas
 // Muestra el historial de calificaciones del alumno seleccionado
-// y permite agregar una nota nueva con descripción y fecha.
+// y permite el ABM completo de notas.
 
 import { useCallback, useState } from 'react';
 import {
@@ -23,6 +23,7 @@ export default function CargarNotaScreen({ navigation, route }) {
   const [calificaciones, setCalificaciones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [notaEditando, setNotaEditando] = useState(null);
   const [descripcion, setDescripcion] = useState('');
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -35,21 +36,33 @@ export default function CargarNotaScreen({ navigation, route }) {
 
   const cargarCalificaciones = async () => {
     setLoading(true);
-
     const { data, error } = await supabase
       .from('calificaciones')
       .select('*')
       .eq('alumno_id', alumno.id)
       .eq('curso_id', curso.id)
-      .order('fecha', { ascending: false }); // más recientes primero
+      .order('fecha', { ascending: false });
 
     if (error) {
       Alert.alert('Error', 'No se pudieron cargar las calificaciones');
     } else {
       setCalificaciones(data);
     }
-
     setLoading(false);
+  };
+
+  const abrirModalNuevo = () => {
+    setNotaEditando(null);
+    setDescripcion('');
+    setNota('');
+    setModalVisible(true);
+  };
+
+  const abrirModalEditar = (calificacion) => {
+    setNotaEditando(calificacion);
+    setDescripcion(calificacion.descripcion);
+    setNota(String(calificacion.nota));
+    setModalVisible(true);
   };
 
   const guardarNota = async () => {
@@ -58,7 +71,6 @@ export default function CargarNotaScreen({ navigation, route }) {
       return;
     }
 
-    // Validamos que la nota sea un número entre 1 y 10
     const notaNum = parseFloat(nota.replace(',', '.'));
     if (isNaN(notaNum) || notaNum < 1 || notaNum > 10) {
       Alert.alert('Error', 'La nota debe ser un número entre 1 y 10');
@@ -67,30 +79,73 @@ export default function CargarNotaScreen({ navigation, route }) {
 
     setGuardando(true);
 
-    const { error } = await supabase
-      .from('calificaciones')
-      .insert({
-        alumno_id: alumno.id,
-        curso_id: curso.id,
-        descripcion: descripcion.trim(),
-        nota: notaNum,
-        fecha: new Date().toISOString().split('T')[0], // fecha de hoy
-      });
+    if (notaEditando) {
+      // Modo edición — actualizamos descripción y nota
+      const { error } = await supabase
+        .from('calificaciones')
+        .update({
+          descripcion: descripcion.trim(),
+          nota: notaNum,
+        })
+        .eq('id', notaEditando.id);
 
-    setGuardando(false);
+      if (error) {
+        Alert.alert('Error', 'No se pudo actualizar la nota');
+        setGuardando(false);
+        return;
+      }
+    } else {
+      // Modo creación
+      const { error } = await supabase
+        .from('calificaciones')
+        .insert({
+          alumno_id: alumno.id,
+          curso_id: curso.id,
+          descripcion: descripcion.trim(),
+          nota: notaNum,
+          fecha: new Date().toISOString().split('T')[0],
+        });
 
-    if (error) {
-      Alert.alert('Error', 'No se pudo guardar la nota');
-      return;
+      if (error) {
+        Alert.alert('Error', 'No se pudo guardar la nota');
+        setGuardando(false);
+        return;
+      }
     }
 
+    setGuardando(false);
     setDescripcion('');
     setNota('');
     setModalVisible(false);
     cargarCalificaciones();
   };
 
-  // Calculamos el promedio de todas las notas del alumno
+  const eliminarNota = (calificacion) => {
+    Alert.alert(
+      'Eliminar nota',
+      `¿Estás seguro que querés eliminar "${calificacion.descripcion}: ${calificacion.nota}"?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('calificaciones')
+              .delete()
+              .eq('id', calificacion.id);
+
+            if (error) {
+              Alert.alert('Error', 'No se pudo eliminar la nota');
+              return;
+            }
+            cargarCalificaciones();
+          },
+        },
+      ]
+    );
+  };
+
   const promedio = calificaciones.length > 0
     ? (calificaciones.reduce((acc, c) => acc + c.nota, 0) / calificaciones.length).toFixed(1)
     : null;
@@ -102,21 +157,34 @@ export default function CargarNotaScreen({ navigation, route }) {
   };
 
   const renderCalificacion = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardDescripcion}>{item.descripcion}</Text>
-        <Text style={styles.cardFecha}>
-          {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })}
+    <View style={styles.cardContainer}>
+      <View style={styles.card}>
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardDescripcion}>{item.descripcion}</Text>
+          <Text style={styles.cardFecha}>
+            {new Date(item.fecha + 'T00:00:00').toLocaleDateString('es-AR', {
+              day: 'numeric', month: 'long', year: 'numeric',
+            })}
+          </Text>
+        </View>
+        <Text style={[styles.cardNota, { color: colorNota(item.nota) }]}>
+          {item.nota}
         </Text>
       </View>
-      {/* Nota con color según aprobado/desaprobado */}
-      <Text style={[styles.cardNota, { color: colorNota(item.nota) }]}>
-        {item.nota % 1 === 0 ? item.nota : item.nota}
-      </Text>
+      <View style={styles.acciones}>
+        <TouchableOpacity
+          style={styles.accionEditar}
+          onPress={() => abrirModalEditar(item)}
+        >
+          <Text style={styles.accionEditarText}>✏️ Editar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.accionEliminar}
+          onPress={() => eliminarNota(item)}
+        >
+          <Text style={styles.accionEliminarText}>🗑️ Eliminar</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -130,15 +198,11 @@ export default function CargarNotaScreen({ navigation, route }) {
           <Text style={styles.titulo}>{alumno.apellido}, {alumno.nombre}</Text>
           <Text style={styles.subtitulo}>{curso.nombre} — {curso.materia}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setModalVisible(true)}
-        >
+        <TouchableOpacity style={styles.addBtn} onPress={abrirModalNuevo}>
           <Text style={styles.addBtnText}>+ Nota</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Banner de promedio */}
       {promedio && (
         <View style={[styles.promedioBanner, { borderLeftColor: colorNota(parseFloat(promedio)) }]}>
           <Text style={styles.promedioLabel}>Promedio actual</Text>
@@ -173,7 +237,9 @@ export default function CargarNotaScreen({ navigation, route }) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitulo}>Nueva calificación</Text>
+            <Text style={styles.modalTitulo}>
+              {notaEditando ? 'Editar calificación' : 'Nueva calificación'}
+            </Text>
             <Text style={styles.modalSubtitulo}>
               {alumno.apellido}, {alumno.nombre}
             </Text>
@@ -193,7 +259,7 @@ export default function CargarNotaScreen({ navigation, route }) {
               placeholderTextColor="#9CA3AF"
               value={nota}
               onChangeText={setNota}
-              keyboardType="decimal-pad" // teclado numérico con decimales
+              keyboardType="decimal-pad"
             />
 
             <TouchableOpacity
@@ -203,7 +269,9 @@ export default function CargarNotaScreen({ navigation, route }) {
             >
               {guardando
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>Guardar nota</Text>
+                : <Text style={styles.buttonText}>
+                    {notaEditando ? 'Guardar cambios' : 'Guardar nota'}
+                  </Text>
               }
             </TouchableOpacity>
 
@@ -292,11 +360,15 @@ const styles = StyleSheet.create({
   lista: {
     padding: 20,
   },
+  cardContainer: {
+    marginBottom: 12,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 10,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     padding: 16,
-    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
@@ -322,6 +394,38 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     marginLeft: 12,
+  },
+  acciones: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    overflow: 'hidden',
+    elevation: 1,
+  },
+  accionEditar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+  },
+  accionEditarText: {
+    color: '#D97706',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  accionEliminar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+  },
+  accionEliminarText: {
+    color: '#EF4444',
+    fontWeight: '600',
+    fontSize: 13,
   },
   loader: {
     marginTop: 60,

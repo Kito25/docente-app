@@ -1,9 +1,9 @@
 // AlumnosScreen.js — Pantalla de alumnos de un curso
-// Muestra la lista de alumnos que pertenecen a un curso específico.
-// Recibe el objeto 'curso' como parámetro de navegación desde CursosScreen.
-// Permite agregar alumnos nuevos mediante un modal.
+// Permite agregar, editar y eliminar alumnos.
+// Al eliminar un alumno se eliminan también sus asistencias y calificaciones
+// gracias al ON DELETE CASCADE que configuramos en la base de datos.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,44 +15,57 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 
 export default function AlumnosScreen({ navigation, route }) {
-  // Recibimos el curso completo desde CursosScreen via route.params
   const { curso } = route.params;
 
   const [alumnos, setAlumnos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [alumnoEditando, setAlumnoEditando] = useState(null);
   const [nombre, setNombre] = useState('');
   const [apellido, setApellido] = useState('');
-  const [guardando, setGuardando] = useState(false);
 
-  useEffect(() => {
-    cargarAlumnos();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarAlumnos();
+    }, [])
+  );
 
   const cargarAlumnos = async () => {
     setLoading(true);
-
-    // Filtramos los alumnos por curso_id para traer solo
-    // los que pertenecen al curso que estamos viendo
     const { data, error } = await supabase
       .from('alumnos')
       .select('*')
-      .eq('curso_id', curso.id) // eq = equal, equivale a WHERE curso_id = curso.id
-      .order('apellido', { ascending: true }); // ordenamos alfabéticamente por apellido
+      .eq('curso_id', curso.id)
+      .order('apellido', { ascending: true });
 
     if (error) {
       Alert.alert('Error', 'No se pudieron cargar los alumnos');
     } else {
       setAlumnos(data);
     }
-
     setLoading(false);
   };
 
-  const agregarAlumno = async () => {
+  const abrirModalNuevo = () => {
+    setAlumnoEditando(null);
+    setNombre('');
+    setApellido('');
+    setModalVisible(true);
+  };
+
+  const abrirModalEditar = (alumno) => {
+    setAlumnoEditando(alumno);
+    setNombre(alumno.nombre);
+    setApellido(alumno.apellido);
+    setModalVisible(true);
+  };
+
+  const guardarAlumno = async () => {
     if (!nombre || !apellido) {
       Alert.alert('Error', 'Completá nombre y apellido');
       return;
@@ -60,44 +73,96 @@ export default function AlumnosScreen({ navigation, route }) {
 
     setGuardando(true);
 
-    const { error } = await supabase
-      .from('alumnos')
-      .insert({
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        curso_id: curso.id, // vinculamos el alumno al curso actual
-      });
+    if (alumnoEditando) {
+      const { error } = await supabase
+        .from('alumnos')
+        .update({
+          nombre: nombre.trim(),
+          apellido: apellido.trim(),
+        })
+        .eq('id', alumnoEditando.id);
 
-    setGuardando(false);
+      if (error) {
+        Alert.alert('Error', 'No se pudo actualizar el alumno');
+        setGuardando(false);
+        return;
+      }
+    } else {
+      const { error } = await supabase
+        .from('alumnos')
+        .insert({
+          nombre: nombre.trim(),
+          apellido: apellido.trim(),
+          curso_id: curso.id,
+        });
 
-    if (error) {
-      Alert.alert('Error', 'No se pudo agregar el alumno');
-      return;
+      if (error) {
+        Alert.alert('Error', 'No se pudo agregar el alumno');
+        setGuardando(false);
+        return;
+      }
     }
 
-    // Limpiamos el formulario y cerramos el modal
+    setGuardando(false);
     setNombre('');
     setApellido('');
     setModalVisible(false);
     cargarAlumnos();
   };
 
+  const eliminarAlumno = (alumno) => {
+    Alert.alert(
+      'Eliminar alumno',
+      `¿Estás seguro que querés eliminar a "${alumno.apellido}, ${alumno.nombre}"? Se eliminarán también todas sus asistencias y calificaciones.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase
+              .from('alumnos')
+              .delete()
+              .eq('id', alumno.id);
+
+            if (error) {
+              Alert.alert('Error', 'No se pudo eliminar el alumno');
+              return;
+            }
+            cargarAlumnos();
+          },
+        },
+      ]
+    );
+  };
+
   const renderAlumno = ({ item, index }) => (
-    <View style={styles.card}>
-      {/* Número de orden en la lista */}
-      <View style={styles.numero}>
-        <Text style={styles.numeroText}>{index + 1}</Text>
-      </View>
-      <View style={styles.cardInfo}>
-        {/* Mostramos apellido primero, convención en listas escolares */}
+    <View style={styles.cardContainer}>
+      <View style={styles.card}>
+        <View style={styles.numero}>
+          <Text style={styles.numeroText}>{index + 1}</Text>
+        </View>
         <Text style={styles.cardNombre}>{item.apellido}, {item.nombre}</Text>
+      </View>
+      <View style={styles.acciones}>
+        <TouchableOpacity
+          style={styles.accionEditar}
+          onPress={() => abrirModalEditar(item)}
+        >
+          <Text style={styles.accionEditarText}>✏️ Editar</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.accionEliminar}
+          onPress={() => eliminarAlumno(item)}
+        >
+          <Text style={styles.accionEliminarText}>🗑️ Eliminar</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 
   return (
     <View style={styles.container}>
-
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backBtn}>‹ Volver</Text>
@@ -106,15 +171,11 @@ export default function AlumnosScreen({ navigation, route }) {
           <Text style={styles.titulo}>{curso.nombre}</Text>
           <Text style={styles.subtitulo}>{curso.materia}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => setModalVisible(true)}
-        >
+        <TouchableOpacity style={styles.addBtn} onPress={abrirModalNuevo}>
           <Text style={styles.addBtnText}>+ Alumno</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Contador de alumnos — útil para el docente saber cuántos tiene */}
       {!loading && (
         <View style={styles.contador}>
           <Text style={styles.contadorText}>
@@ -148,8 +209,12 @@ export default function AlumnosScreen({ navigation, route }) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitulo}>Agregar alumno</Text>
-            <Text style={styles.modalSubtitulo}>Curso: {curso.nombre} — {curso.materia}</Text>
+            <Text style={styles.modalTitulo}>
+              {alumnoEditando ? 'Editar alumno' : 'Agregar alumno'}
+            </Text>
+            <Text style={styles.modalSubtitulo}>
+              Curso: {curso.nombre} — {curso.materia}
+            </Text>
 
             <TextInput
               style={styles.input}
@@ -171,12 +236,14 @@ export default function AlumnosScreen({ navigation, route }) {
 
             <TouchableOpacity
               style={[styles.button, guardando && styles.buttonDisabled]}
-              onPress={agregarAlumno}
+              onPress={guardarAlumno}
               disabled={guardando}
             >
               {guardando
                 ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.buttonText}>Agregar alumno</Text>
+                : <Text style={styles.buttonText}>
+                    {alumnoEditando ? 'Guardar cambios' : 'Agregar alumno'}
+                  </Text>
               }
             </TouchableOpacity>
 
@@ -189,7 +256,6 @@ export default function AlumnosScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
-
     </View>
   );
 }
@@ -256,11 +322,15 @@ const styles = StyleSheet.create({
   lista: {
     padding: 20,
   },
+  cardContainer: {
+    marginBottom: 12,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 10,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
     padding: 16,
-    marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     shadowColor: '#000',
@@ -283,13 +353,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4F46E5',
   },
-  cardInfo: {
-    flex: 1,
-  },
   cardNombre: {
     fontSize: 16,
     color: '#111827',
     fontWeight: '500',
+    flex: 1,
+  },
+  acciones: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    backgroundColor: '#fff',
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    overflow: 'hidden',
+    elevation: 1,
+  },
+  accionEditar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF',
+  },
+  accionEditarText: {
+    color: '#4F46E5',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  accionEliminar: {
+    flex: 1,
+    padding: 10,
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+  },
+  accionEliminarText: {
+    color: '#EF4444',
+    fontWeight: '600',
+    fontSize: 13,
   },
   loader: {
     marginTop: 60,
