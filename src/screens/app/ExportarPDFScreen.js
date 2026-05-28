@@ -6,6 +6,7 @@
 // por WhatsApp, email, Google Drive, etc.
 
 import { useEffect, useState } from 'react';
+import { obtenerConfiguracion, calcularEstadisticas } from '../../lib/calcularAsistencia';
 import {
   ActivityIndicator,
   Alert,
@@ -156,6 +157,8 @@ export default function ExportarPDFScreen({ navigation }) {
   const exportarAsistencia = async (curso) => {
     setGenerando(curso.id + '_asis');
 
+    const config = await obtenerConfiguracion();
+
     const { data: alumnos } = await supabase
       .from('alumnos')
       .select('*')
@@ -174,7 +177,6 @@ export default function ExportarPDFScreen({ navigation }) {
       return;
     }
 
-    // Obtenemos las fechas únicas en que se tomó asistencia
     const fechas = asistencias
       ? [...new Set(asistencias.map((a) => a.fecha))].sort()
       : [];
@@ -184,22 +186,20 @@ export default function ExportarPDFScreen({ navigation }) {
         ? asistencias.filter((a) => a.alumno_id === alumno.id)
         : [];
 
-      const presentes = asistenciasAlumno.filter((a) => a.presente).length;
-      const total = asistenciasAlumno.length;
-      const porcentaje = total > 0
-        ? Math.round((presentes / total) * 100)
-        : '-';
+      // Usamos la función utilitaria para calcular con la config del docente
+      const stats = calcularEstadisticas(asistenciasAlumno, config);
 
-      const colorPorcentaje = porcentaje === '-' ? '#6B7280'
-        : porcentaje >= 75 ? '#059669'
-        : porcentaje >= 50 ? '#D97706'
+      const colorPorcentaje = stats.porcentaje === null ? '#6B7280'
+        : stats.porcentaje >= 75 ? '#059669'
+        : stats.porcentaje >= 50 ? '#D97706'
         : '#EF4444';
 
-      // Generamos las celdas de cada fecha con P o A
       const celdasFechas = fechas.map((fecha) => {
         const registro = asistenciasAlumno.find((a) => a.fecha === fecha);
         if (!registro) return '<td style="text-align:center; color:#9CA3AF">-</td>';
-        return registro.presente
+        if (registro.estado === 'tarde')
+          return '<td style="text-align:center; color:#D97706; font-weight:bold">T</td>';
+        return registro.estado === 'presente' || registro.presente
           ? '<td style="text-align:center; color:#059669; font-weight:bold">P</td>'
           : '<td style="text-align:center; color:#EF4444; font-weight:bold">A</td>';
       }).join('');
@@ -209,13 +209,15 @@ export default function ExportarPDFScreen({ navigation }) {
           <td>${alumno.apellido}, ${alumno.nombre}</td>
           ${celdasFechas}
           <td style="text-align:center; font-weight:bold; color:${colorPorcentaje}">
-            ${porcentaje}${porcentaje !== '-' ? '%' : ''}
+            ${stats.porcentaje !== null ? stats.porcentaje + '%' : '-'}
+          </td>
+          <td style="text-align:center; color:#EF4444; font-weight:bold">
+            ${stats.inasistenciasTotal}
           </td>
         </tr>
       `;
     }).join('');
 
-    // Encabezados de fechas formateados
     const encabezadosFechas = fechas.map((fecha) => {
       const d = new Date(fecha + 'T00:00:00');
       return `<th style="text-align:center; font-size:11px">${d.getDate()}/${d.getMonth() + 1}</th>`;
@@ -229,7 +231,8 @@ export default function ExportarPDFScreen({ navigation }) {
             body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
             h1 { color: #059669; font-size: 22px; margin-bottom: 4px; }
             h2 { color: #6B7280; font-size: 16px; font-weight: normal; margin-bottom: 24px; }
-            .meta { font-size: 13px; color: #6B7280; margin-bottom: 24px; }
+            .meta { font-size: 13px; color: #6B7280; margin-bottom: 8px; }
+            .regla { font-size: 12px; color: #D97706; margin-bottom: 24px; }
             table { width: 100%; border-collapse: collapse; }
             th { background: #059669; color: white; padding: 8px 10px; text-align: left; font-size: 12px; }
             td { padding: 8px 10px; border-bottom: 1px solid #E5E7EB; font-size: 12px; }
@@ -245,17 +248,23 @@ export default function ExportarPDFScreen({ navigation }) {
               day: 'numeric', month: 'long', year: 'numeric'
             })} · Total de clases: ${fechas.length}
           </div>
+          <div class="regla">
+            Regla aplicada: ${config.tardanzasPorInasistencia} tardanzas = 1 inasistencia
+          </div>
           <table>
             <thead>
               <tr>
                 <th>Alumno</th>
                 ${encabezadosFechas}
-                <th style="text-align:center">Asistencia</th>
+                <th style="text-align:center">Asist.</th>
+                <th style="text-align:center">Inasist.</th>
               </tr>
             </thead>
             <tbody>${filas}</tbody>
           </table>
-          <div class="footer">P = Presente · A = Ausente · Generado con DocenteApp</div>
+          <div class="footer">
+            P = Presente · T = Tarde · A = Ausente · Generado con DocenteApp
+          </div>
         </body>
       </html>
     `;

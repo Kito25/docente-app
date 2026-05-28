@@ -1,6 +1,6 @@
 // TomarAsistenciaScreen.js — Pantalla para tomar lista de un curso
-// Muestra todos los alumnos del curso y permite marcarlos presente/ausente
-// con un simple toque. Por defecto todos arrancan como ausentes.
+// Maneja tres estados de asistencia: presente, tarde y ausente.
+// Cada toque en un alumno cicla entre los tres estados.
 // Al guardar, verifica si ya existe asistencia para ese día y curso
 // para evitar duplicados en la base de datos.
 
@@ -16,14 +16,30 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
+// Definimos los tres estados como constantes para evitar errores de tipeo
+// y facilitar el mantenimiento futuro
+const ESTADOS = {
+  AUSENTE: 'ausente',
+  TARDE: 'tarde',
+  PRESENTE: 'presente',
+};
+
+// Configuración visual de cada estado
+// Centralizar esto evita repetir colores y etiquetas en múltiples lugares
+const CONFIG_ESTADO = {
+  ausente:  { label: 'A', color: '#EF4444', bg: '#FEE2E2', texto: 'Ausente' },
+  tarde:    { label: 'T', color: '#D97706', bg: '#FEF3C7', texto: 'Tarde' },
+  presente: { label: 'P', color: '#059669', bg: '#ECFDF5', texto: 'Presente' },
+};
+
 export default function TomarAsistenciaScreen({ navigation, route }) {
   const { curso, fecha } = route.params;
 
   const [alumnos, setAlumnos] = useState([]);
-  const [asistencias, setAsistencias] = useState({}); // { alumno_id: true/false }
+  const [estados, setEstados] = useState({}); // { alumno_id: 'presente'|'tarde'|'ausente' }
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
-  const [yaGuardada, setYaGuardada] = useState(false); // si ya se tomó hoy
+  const [yaGuardada, setYaGuardada] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -32,7 +48,6 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
   const cargarDatos = async () => {
     setLoading(true);
 
-    // Traemos los alumnos del curso
     const { data: alumnosData, error: alumnosError } = await supabase
       .from('alumnos')
       .select('*')
@@ -46,7 +61,6 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
     }
 
     // Verificamos si ya existe asistencia guardada para hoy
-    // Esto evita que el docente tome lista dos veces el mismo día
     const { data: asistenciasData } = await supabase
       .from('asistencias')
       .select('*')
@@ -60,40 +74,48 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
       setYaGuardada(true);
       const mapa = {};
       asistenciasData.forEach((a) => {
-        mapa[a.alumno_id] = a.presente;
+        // Usamos el campo estado nuevo, con fallback al campo presente viejo
+        // para compatibilidad con registros anteriores a la migración
+        mapa[a.alumno_id] = a.estado || (a.presente ? 'presente' : 'ausente');
       });
-      setAsistencias(mapa);
+      setEstados(mapa);
     } else {
       // No hay asistencia aún — todos arrancan como ausentes por defecto
       const mapaInicial = {};
       alumnosData.forEach((a) => {
-        mapaInicial[a.id] = false;
+        mapaInicial[a.id] = ESTADOS.AUSENTE;
       });
-      setAsistencias(mapaInicial);
+      setEstados(mapaInicial);
     }
 
     setLoading(false);
   };
 
-  // Alterna entre presente y ausente al tocar un alumno
-  const toggleAsistencia = (alumnoId) => {
-    if (yaGuardada) return; // no permitimos editar si ya está guardada
-    setAsistencias((prev) => ({
-      ...prev,
-      [alumnoId]: !prev[alumnoId],
-    }));
+  // Cicla entre los tres estados al tocar un alumno:
+  // ausente → presente → tarde → ausente → ...
+  // Este orden tiene lógica: primero marcás presentes,
+  // los que quedan ausentes los dejás, y los tardíos los marcás al final
+  const toggleEstado = (alumnoId) => {
+    if (yaGuardada) return;
+    setEstados((prev) => {
+      const estadoActual = prev[alumnoId];
+      const siguiente = estadoActual === ESTADOS.AUSENTE ? ESTADOS.PRESENTE
+        : estadoActual === ESTADOS.PRESENTE ? ESTADOS.TARDE
+        : ESTADOS.AUSENTE;
+      return { ...prev, [alumnoId]: siguiente };
+    });
   };
 
   const guardarAsistencia = async () => {
     setGuardando(true);
 
-    // Construimos el array de registros a insertar
-    // uno por cada alumno con su estado de asistencia
     const registros = alumnos.map((alumno) => ({
       alumno_id: alumno.id,
       curso_id: curso.id,
       fecha: fecha,
-      presente: asistencias[alumno.id] ?? false,
+      estado: estados[alumno.id] ?? ESTADOS.AUSENTE,
+      // Mantenemos el campo presente por compatibilidad con el PDF y otras pantallas
+      presente: estados[alumno.id] === ESTADOS.PRESENTE,
     }));
 
     const { error } = await supabase
@@ -111,39 +133,32 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
     Alert.alert('¡Listo!', 'Asistencia guardada correctamente');
   };
 
-  // Contamos presentes para mostrar un resumen al docente
-  const presentes = Object.values(asistencias).filter(Boolean).length;
-  const ausentes = alumnos.length - presentes;
+  // Contamos cada estado para el resumen
+  const contarEstado = (estado) =>
+    Object.values(estados).filter((e) => e === estado).length;
 
   const renderAlumno = ({ item, index }) => {
-    const estaPresente = asistencias[item.id] ?? false;
+    const estadoActual = estados[item.id] ?? ESTADOS.AUSENTE;
+    const config = CONFIG_ESTADO[estadoActual];
 
     return (
       <TouchableOpacity
-        style={[
-          styles.card,
-          estaPresente ? styles.cardPresente : styles.cardAusente,
-        ]}
-        onPress={() => toggleAsistencia(item.id)}
+        style={[styles.card, { backgroundColor: config.bg, borderColor: config.color + '40' }]}
+        onPress={() => toggleEstado(item.id)}
         activeOpacity={yaGuardada ? 1 : 0.7}
       >
         <View style={styles.numero}>
           <Text style={styles.numeroText}>{index + 1}</Text>
         </View>
-        <Text style={styles.cardNombre}>
-          {item.apellido}, {item.nombre}
-        </Text>
-        {/* Indicador visual de presente/ausente */}
-        <View style={[
-          styles.badge,
-          estaPresente ? styles.badgePresente : styles.badgeAusente,
-        ]}>
-          <Text style={[
-            styles.badgeText,
-            estaPresente ? styles.badgeTextPresente : styles.badgeTextAusente,
-          ]}>
-            {estaPresente ? 'P' : 'A'}
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardNombre}>{item.apellido}, {item.nombre}</Text>
+          {/* Mostramos el estado en texto para mayor claridad */}
+          <Text style={[styles.cardEstado, { color: config.color }]}>
+            {config.texto}
           </Text>
+        </View>
+        <View style={[styles.badge, { backgroundColor: config.color }]}>
+          <Text style={styles.badgeText}>{config.label}</Text>
         </View>
       </TouchableOpacity>
     );
@@ -162,15 +177,26 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
         <View style={{ width: 60 }} />
       </View>
 
-      {/* Resumen de presentes y ausentes */}
+      {/* Resumen de los tres estados */}
       <View style={styles.resumen}>
         <View style={styles.resumenItem}>
-          <Text style={styles.resumenNumero}>{presentes}</Text>
+          <Text style={[styles.resumenNumero, { color: '#059669' }]}>
+            {contarEstado(ESTADOS.PRESENTE)}
+          </Text>
           <Text style={styles.resumenLabel}>Presentes</Text>
         </View>
         <View style={styles.resumenDivider} />
         <View style={styles.resumenItem}>
-          <Text style={[styles.resumenNumero, { color: '#EF4444' }]}>{ausentes}</Text>
+          <Text style={[styles.resumenNumero, { color: '#D97706' }]}>
+            {contarEstado(ESTADOS.TARDE)}
+          </Text>
+          <Text style={styles.resumenLabel}>Tarde</Text>
+        </View>
+        <View style={styles.resumenDivider} />
+        <View style={styles.resumenItem}>
+          <Text style={[styles.resumenNumero, { color: '#EF4444' }]}>
+            {contarEstado(ESTADOS.AUSENTE)}
+          </Text>
           <Text style={styles.resumenLabel}>Ausentes</Text>
         </View>
         <View style={styles.resumenDivider} />
@@ -179,6 +205,15 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
           <Text style={styles.resumenLabel}>Total</Text>
         </View>
       </View>
+
+      {/* Instrucción de uso */}
+      {!yaGuardada && (
+        <View style={styles.instruccionBanner}>
+          <Text style={styles.instruccionText}>
+            Tocá para ciclar: Ausente → Presente → Tarde
+          </Text>
+        </View>
+      )}
 
       {yaGuardada && (
         <View style={styles.guardadaBanner}>
@@ -202,7 +237,6 @@ export default function TomarAsistenciaScreen({ navigation, route }) {
         />
       )}
 
-      {/* Botón de guardar — solo visible si no está guardada aún */}
       {!yaGuardada && alumnos.length > 0 && (
         <View style={styles.footer}>
           <TouchableOpacity
@@ -269,18 +303,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resumenNumero: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#059669',
+    color: '#111827',
   },
   resumenLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#6B7280',
     marginTop: 2,
   },
   resumenDivider: {
     width: 1,
     backgroundColor: '#E5E7EB',
+  },
+  instruccionBanner: {
+    backgroundColor: '#EEF2FF',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C7D2FE',
+  },
+  instruccionText: {
+    fontSize: 13,
+    color: '#4338CA',
+    textAlign: 'center',
   },
   guardadaBanner: {
     backgroundColor: '#ECFDF5',
@@ -304,21 +349,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 3,
     elevation: 1,
-  },
-  cardPresente: {
-    backgroundColor: '#ECFDF5',
-    borderWidth: 1,
-    borderColor: '#6EE7B7',
-  },
-  cardAusente: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   numero: {
     width: 28,
@@ -334,10 +370,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6B7280',
   },
-  cardNombre: {
+  cardInfo: {
     flex: 1,
+  },
+  cardNombre: {
     fontSize: 15,
     color: '#111827',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  cardEstado: {
+    fontSize: 12,
     fontWeight: '500',
   },
   badge: {
@@ -347,21 +390,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  badgePresente: {
-    backgroundColor: '#059669',
-  },
-  badgeAusente: {
-    backgroundColor: '#E5E7EB',
-  },
   badgeText: {
+    color: '#fff',
     fontSize: 14,
     fontWeight: 'bold',
-  },
-  badgeTextPresente: {
-    color: '#fff',
-  },
-  badgeTextAusente: {
-    color: '#9CA3AF',
   },
   loader: {
     marginTop: 60,

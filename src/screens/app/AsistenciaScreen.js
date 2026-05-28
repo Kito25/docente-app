@@ -93,6 +93,17 @@ export default function AsistenciaScreen({ navigation }) {
           renderItem={renderCurso}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.lista}
+          ListHeaderComponent={
+            // Botón para ir al historial — aparece arriba de la lista
+            cursos.length > 0 && (
+              <TouchableOpacity
+                style={styles.historialBtn}
+                onPress={() => navigation.navigate('SeleccionarCursoHistorial')}
+              >
+                <Text style={styles.historialBtnText}>📊 Ver historial de asistencia</Text>
+              </TouchableOpacity>
+            )
+          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyText}>No tenés cursos creados</Text>
@@ -210,4 +221,18 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     textAlign: 'center',
   },
+  historialBtn: {
+  backgroundColor: '#ECFDF5',
+  borderWidth: 1,
+  borderColor: '#6EE7B7',
+  borderRadius: 10,
+  padding: 14,
+  alignItems: 'center',
+  marginBottom: 16,
+},
+historialBtnText: {
+  color: '#059669',
+  fontWeight: '600',
+  fontSize: 15,
+},
 });

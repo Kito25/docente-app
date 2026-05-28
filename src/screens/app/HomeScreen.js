@@ -64,6 +64,14 @@ export default function HomeScreen({ navigation }) {
   color: '#7C3AED',
   pantalla: 'ExportarPDF',
 },
+   {
+      id: 5,
+      titulo: 'Configuración',
+      descripcion: 'Personalizá las reglas de tu institución',
+      icono: '⚙️',
+      color: '#6B7280',
+      pantalla: 'Configuracion',
+},
   ];
 
   return (
