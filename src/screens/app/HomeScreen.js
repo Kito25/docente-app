@@ -137,16 +137,24 @@ setStats({
 
       {/* Encabezado */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.saludo}>¡Hola, {nombreDocente}! 👋</Text>
-          <Text style={styles.fecha}>{new Date().toLocaleDateString('es-AR', {
-            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-          })}</Text>
-        </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Salir</Text>
-        </TouchableOpacity>
-      </View>
+  <View style={styles.headerLeft}>
+    <Text style={styles.saludo}>¡Hola, {nombreDocente}! 👋</Text>
+    <Text style={styles.fecha}>{new Date().toLocaleDateString('es-AR', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    })}</Text>
+  </View>
+  <View style={styles.headerBotones}>
+    <TouchableOpacity
+      style={styles.perfilBtn}
+      onPress={() => navigation.navigate('Perfil')}
+    >
+      <Text style={styles.perfilBtnText}>👤</Text>
+    </TouchableOpacity>
+    <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+      <Text style={styles.logoutText}>Salir</Text>
+    </TouchableOpacity>
+  </View>
+</View>
 
       {/* Dashboard de estadísticas */}
       {loadingStats ? (
@@ -359,4 +367,23 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#9CA3AF',
   },
+  headerLeft: {
+  flex: 1,
+},
+headerBotones: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8,
+},
+perfilBtn: {
+  backgroundColor: '#EEF2FF',
+  width: 38,
+  height: 38,
+  borderRadius: 19,
+  justifyContent: 'center',
+  alignItems: 'center',
+},
+perfilBtnText: {
+  fontSize: 18,
+},
 });

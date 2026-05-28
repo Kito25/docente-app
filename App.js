@@ -2,6 +2,7 @@
 // Registra todas las pantallas disponibles en la app.
 // Cuando agregamos una pantalla nueva, siempre hay que registrarla acá.
 
+import PerfilScreen from './src/screens/app/PerfilScreen';
 import ConfiguracionScreen from './src/screens/app/ConfiguracionScreen';
 import SeleccionarCursoHistorialScreen from './src/screens/app/SeleccionarCursoHistorialScreen';
 import ExportarPDFScreen from './src/screens/app/ExportarPDFScreen';
@@ -74,6 +75,7 @@ export default function App() {
     <Stack.Screen name="ExportarPDF" component={ExportarPDFScreen} />
     <Stack.Screen name="SeleccionarCursoHistorial" component={SeleccionarCursoHistorialScreen} />
     <Stack.Screen name="Configuracion" component={ConfiguracionScreen} />
+    <Stack.Screen name="Perfil" component={PerfilScreen} />
   </>
 ) : (
   <>
