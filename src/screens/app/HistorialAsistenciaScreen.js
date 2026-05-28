@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+
 import { supabase } from '../../lib/supabase';
 import { obtenerConfiguracion, calcularEstadisticas } from '../../lib/calcularAsistencia';
 
@@ -64,11 +65,15 @@ export default function HistorialAsistenciaScreen({ navigation, route }) {
     // pasando la configuración del docente
     const mapaEstadisticas = {};
     alumnosData.forEach((alumno) => {
-      const asistenciasAlumno = asistenciasData
-        ? asistenciasData.filter((a) => a.alumno_id === alumno.id)
-        : [];
-      mapaEstadisticas[alumno.id] = calcularEstadisticas(asistenciasAlumno, config);
-    });
+  const asistenciasAlumno = asistenciasData
+    ? asistenciasData.filter((a) => a.alumno_id === alumno.id)
+    : [];
+  const stats = calcularEstadisticas(asistenciasAlumno, config);
+  
+ 
+  
+  mapaEstadisticas[alumno.id] = stats;
+});
 
     setAlumnos(alumnosData);
     setEstadisticas(mapaEstadisticas);
@@ -155,6 +160,14 @@ export default function HistorialAsistenciaScreen({ navigation, route }) {
             </Text>
           </View>
         )}
+        {/* Alerta si el alumno superó el umbral de inasistencias */}
+        {stats.enAlerta && (
+          <View style={styles.alertaBanner}>
+            <Text style={styles.alertaTexto}>
+              ⚠️ Superó el límite de inasistencias ({stats.inasistenciasTotal} faltas)
+            </Text>
+          </View>
+        )} 
       </View>
     );
   };
@@ -355,4 +368,17 @@ const styles = StyleSheet.create({
     color: '#D97706',
     textAlign: 'center',
   },
+  alertaBanner: {
+  marginTop: 8,
+  backgroundColor: '#FEF2F2',
+  borderRadius: 6,
+  padding: 8,
+  borderLeftWidth: 3,
+  borderLeftColor: '#EF4444',
+},
+alertaTexto: {
+  fontSize: 12,
+  color: '#EF4444',
+  fontWeight: '600',
+},
 });

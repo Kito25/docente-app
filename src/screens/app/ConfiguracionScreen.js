@@ -1,12 +1,12 @@
 // ConfiguracionScreen.js — Pantalla de configuración del docente
 // Permite personalizar parámetros de la app por docente.
-// Por ahora maneja la regla de tardanzas por inasistencia.
-// La configuración se guarda en Supabase y se aplica en todo el sistema.
+// Centralizar la configuración aquí facilita agregar nuevas opciones en el futuro.
 
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,7 +16,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 
 export default function ConfiguracionScreen({ navigation }) {
-  const [tardanzas, setTardanzas] = useState(3); // valor por defecto
+  const [tardanzas, setTardanzas] = useState(3);
+  const [umbralInasistencias, setUmbralInasistencias] = useState(5);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
 
@@ -35,16 +36,15 @@ export default function ConfiguracionScreen({ navigation }) {
       .from('configuracion')
       .select('*')
       .eq('docente_id', user.id)
-      .single(); // single() devuelve un objeto en lugar de un array
+      .single();
 
     if (error && error.code !== 'PGRST116') {
-      // PGRST116 significa "no se encontró ningún registro"
-      // lo ignoramos porque simplemente el docente no configuró nada aún
       Alert.alert('Error', 'No se pudo cargar la configuración');
     }
 
     if (data) {
       setTardanzas(data.tardanzas_por_inasistencia);
+      setUmbralInasistencias(data.umbral_inasistencias ?? 5);
     }
 
     setLoading(false);
@@ -55,16 +55,15 @@ export default function ConfiguracionScreen({ navigation }) {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-    // upsert inserta si no existe o actualiza si ya existe
-    // Es perfecto para configuraciones donde solo hay un registro por docente
     const { error } = await supabase
       .from('configuracion')
       .upsert({
         docente_id: user.id,
         tardanzas_por_inasistencia: tardanzas,
+        umbral_inasistencias: umbralInasistencias,
         updated_at: new Date().toISOString(),
       }, {
-        onConflict: 'docente_id', // si ya existe un registro con este docente_id, lo actualiza
+        onConflict: 'docente_id',
       });
 
     setGuardando(false);
@@ -77,8 +76,8 @@ export default function ConfiguracionScreen({ navigation }) {
     Alert.alert('¡Listo!', 'Configuración guardada correctamente');
   };
 
-  // Opciones disponibles para tardanzas por inasistencia
-  const opciones = [2, 3, 4, 5];
+  const opcionesTardanzas = [2, 3, 4, 5];
+  const opcionesUmbral = [3, 4, 5, 6, 8, 10];
 
   return (
     <View style={styles.container}>
@@ -93,18 +92,16 @@ export default function ConfiguracionScreen({ navigation }) {
       {loading ? (
         <ActivityIndicator size="large" color="#4F46E5" style={styles.loader} />
       ) : (
-        <View style={styles.contenido}>
+        <ScrollView contentContainerStyle={styles.contenido}>
 
-          {/* Sección de tardanzas */}
+          {/* Sección 1: Tardanzas */}
           <View style={styles.seccion}>
-            <Text style={styles.seccionTitulo}>Regla de tardanzas</Text>
+            <Text style={styles.seccionTitulo}>⏰ Regla de tardanzas</Text>
             <Text style={styles.seccionDescripcion}>
               ¿Cuántas tardanzas equivalen a una inasistencia?
             </Text>
-
-            {/* Botones de selección — más claro que un input numérico */}
             <View style={styles.opcionesRow}>
-              {opciones.map((opcion) => (
+              {opcionesTardanzas.map((opcion) => (
                 <TouchableOpacity
                   key={opcion}
                   style={[
@@ -128,11 +125,47 @@ export default function ConfiguracionScreen({ navigation }) {
                 </TouchableOpacity>
               ))}
             </View>
-
-            {/* Explicación de la regla actual seleccionada */}
             <View style={styles.reglaActual}>
               <Text style={styles.reglaTexto}>
-                Con esta configuración: {tardanzas} tardanzas = 1 inasistencia
+                {tardanzas} tardanzas = 1 inasistencia
+              </Text>
+            </View>
+          </View>
+
+          {/* Sección 2: Umbral de alerta */}
+          <View style={styles.seccion}>
+            <Text style={styles.seccionTitulo}>🚨 Alerta de inasistencias</Text>
+            <Text style={styles.seccionDescripcion}>
+              ¿A partir de cuántas inasistencias alertar al docente?
+            </Text>
+            <View style={styles.opcionesRow}>
+              {opcionesUmbral.map((opcion) => (
+                <TouchableOpacity
+                  key={opcion}
+                  style={[
+                    styles.opcionBtn,
+                    umbralInasistencias === opcion && styles.opcionBtnRojo,
+                  ]}
+                  onPress={() => setUmbralInasistencias(opcion)}
+                >
+                  <Text style={[
+                    styles.opcionNumero,
+                    umbralInasistencias === opcion && styles.opcionNumeroRojo,
+                  ]}>
+                    {opcion}
+                  </Text>
+                  <Text style={[
+                    styles.opcionLabel,
+                    umbralInasistencias === opcion && styles.opcionLabelRojo,
+                  ]}>
+                    faltas
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.reglaActualRojo}>
+              <Text style={styles.reglaTextoRojo}>
+                Alertar cuando un alumno supere {umbralInasistencias} inasistencias
               </Text>
             </View>
           </View>
@@ -148,7 +181,7 @@ export default function ConfiguracionScreen({ navigation }) {
             }
           </TouchableOpacity>
 
-        </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -191,7 +224,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
-    marginBottom: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
@@ -211,30 +244,38 @@ const styles = StyleSheet.create({
   },
   opcionesRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
     marginBottom: 16,
   },
   opcionBtn: {
-    flex: 1,
-    marginHorizontal: 4,
-    paddingVertical: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 10,
     alignItems: 'center',
     backgroundColor: '#F3F4F6',
     borderWidth: 2,
     borderColor: 'transparent',
+    minWidth: 64,
   },
   opcionBtnActivo: {
     backgroundColor: '#EEF2FF',
     borderColor: '#4F46E5',
   },
+  opcionBtnRojo: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444',
+  },
   opcionNumero: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#6B7280',
   },
   opcionNumeroActivo: {
     color: '#4F46E5',
+  },
+  opcionNumeroRojo: {
+    color: '#EF4444',
   },
   opcionLabel: {
     fontSize: 11,
@@ -243,6 +284,9 @@ const styles = StyleSheet.create({
   },
   opcionLabelActivo: {
     color: '#4F46E5',
+  },
+  opcionLabelRojo: {
+    color: '#EF4444',
   },
   reglaActual: {
     backgroundColor: '#EEF2FF',
@@ -255,11 +299,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  reglaActualRojo: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    padding: 12,
+  },
+  reglaTextoRojo: {
+    fontSize: 14,
+    color: '#EF4444',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
   button: {
     backgroundColor: '#4F46E5',
     padding: 16,
     borderRadius: 10,
     alignItems: 'center',
+    marginTop: 4,
   },
   buttonDisabled: {
     opacity: 0.6,
